@@ -17,7 +17,7 @@ Give an **instant, self-serve price for one dog walk** so Rosie stops working qu
 ## Functional requirements
 
 1. **Single page, no build, works offline.** One HTML file with embedded CSS and JS. It runs by double-clicking the file or opening the URL, with no backend, database, login, external API call, network request, or framework. Opened with no internet connection, it still calculates. *(A build that fetches anything over the network fails this.)*
-2. **Inputs.** The page exposes exactly three inputs: (a) number of dogs, (b) a same-day toggle, (c) a holiday toggle. Number of dogs accepts whole numbers ≥ 1 and defaults to 1, so a valid quote is always on screen.
+2. **Inputs.** The page exposes exactly four inputs: (a) number of dogs, (b) a same-day toggle, (c) a holiday toggle, (d) an aggressive/reactive toggle. Number of dogs accepts whole numbers ≥ 1 and defaults to 1, so a valid quote is always on screen. The aggressive/reactive toggle is a single booking-level toggle (not one per dog), because the surcharge it drives is flat per booking.
 3. **Live output.** Changing any input updates the displayed quote immediately, with no submit button and no page reload. *(A build with a "Calculate" button fails this.)*
 4. **One visible quote.** The page shows a single, unambiguous total price in USD (`$`) to two decimal places (e.g. $15.00). The current inputs it reflects are visible on screen at the same time, so Rosie and the customer can confirm they entered the same thing.
 5. **Deterministic.** Identical inputs always produce an identical displayed total. No randomness and no dependence on the current date/time — the same-day and holiday conditions are set by the user via the toggles, never inferred from the system clock. *(If the page reads the clock to auto-decide "holiday," it fails this.)*
@@ -30,18 +30,21 @@ Give an **instant, self-serve price for one dog walk** so Rosie stops working qu
 The quote is computed for **one walk** in this fixed order. The order is deliberate and must be reproducible.
 
 **Fixed factors (from the brief, not editable behaviour):** second dog = 50% of the first dog's rate; holiday multiplier = ×2.
-**Editable values (Rosie's, in the pricing block):** `BASE` = rate for one dog; `SAME_DAY` = flat same-day surcharge.
+**Editable values (Rosie's, in the pricing block):** `BASE` = rate for one dog; `SAME_DAY` = flat same-day surcharge; `AGGRESSIVE` = flat aggressive/reactive-dog surcharge.
 
 Calculation, in order:
 1. **Dog charges.** First dog = `BASE`. Second dog = `0.5 × BASE` (half price — **not free, not full price**). Each dog beyond the second = `BASE` (full price — only the second dog is ever discounted).
 2. **Holiday.** If the holiday toggle is on, multiply the dog charges (discount included) by 2. Otherwise leave them unchanged.
 3. **Same-day.** If the same-day toggle is on, add `SAME_DAY` **once** to the running total. The surcharge is a flat fee per walk, added *after* any holiday doubling, and is **not** itself doubled.
-4. **Round once, at the end,** to two decimal places (nearest cent). No intermediate rounding.
+4. **Aggressive / reactive.** If the aggressive-or-reactive toggle is on, add `AGGRESSIVE` **once** to the running total, *after* any holiday doubling, **not** itself doubled. The client's words: *"Can we add a $10 surcharge whenever at least one dog in the booking is marked aggressive or reactive?"* and *"It's a flat $10 per booking no matter how many aggressive dogs are in it, not per dog — and it doesn't double on holidays, it just gets added on top after the holiday doubling."* Steps 3 and 4 are both flat additions, so their relative order does not change the total.
+5. **Round once, at the end,** to two decimal places (nearest cent). No intermediate rounding.
 
 Edge cases:
 - **No stacking discounts.** The 2nd-dog half-price reduction is the only discount in the system and is applied at most once (to the second dog only). No discount ever compounds with another. Holiday (×2) and same-day (surcharge) are **increases**, not discounts, and always apply when toggled.
 - **Discount survives the holiday rate.** On a holiday walk the 2nd dog stays half price and then the whole walk doubles — the holiday rate does not cancel the dog discount.
 - **Both toggles on.** A walk can be both holiday and same-day (a holiday walk booked that morning). Dog charges double, then the flat same-day surcharge is added on top at face value.
+- **Aggressive surcharge is per booking, not per dog.** One aggressive dog and three aggressive dogs both add `AGGRESSIVE` exactly once. The surcharge does not scale with dog count and does not double on holidays.
+- **All three surcharge/multiplier toggles on.** Holiday doubles the dog charges; `SAME_DAY` and `AGGRESSIVE` are then both added once each, at face value.
 - **One dog.** No second-dog discount applies; quote is `BASE` (× holiday, + same-day as applicable).
 - **No minimum charge.** The quote is exactly what the rules produce; there is no floor or call-out fee.
 - **Invalid input.** Fewer than 1 dog is not a valid walk. Because the dog count defaults to 1 and cannot go below 1, the page never shows `$0.00` as a real quote and never a negative number.
@@ -53,10 +56,11 @@ Resolutions of the gaps the brief left open — now settled, recorded here so th
 - **Only the second dog is discounted;** a third or later dog is full price.
 - **The 2nd-dog discount still applies on holidays;** the whole walk (discount included) is what doubles.
 - **Same-day surcharge is a flat fee per walk,** added after holiday doubling and not doubled.
+- **Aggressive/reactive surcharge is a flat fee per booking** (`AGGRESSIVE = $10`), charged once when at least one dog in the booking is aggressive or reactive, added after holiday doubling and not doubled. Source: client request, issue #1 — *"It's a flat $10 per booking no matter how many aggressive dogs are in it, not per dog — and it doesn't double on holidays, it just gets added on top after the holiday doubling."*
 - **No minimum charge.**
 - **Currency is USD (`$`).**
 - **The page shows the business name and a tap-to-text "book" prompt.**
-- **Rates ship as clearly-marked placeholders** (`BASE = $10`, `SAME_DAY = $5`, phone = placeholder) for Rosie to replace before sharing the link. The examples below use these placeholder values.
+- **Rates ship as clearly-marked placeholders** (`BASE = $10`, `SAME_DAY = $5`, `AGGRESSIVE = $10`, phone = placeholder) for Rosie to replace before sharing the link. The examples below use these placeholder values.
 
 ## Out of scope
 
@@ -70,7 +74,7 @@ Resolutions of the gaps the brief left open — now settled, recorded here so th
 
 ## Acceptance criteria
 
-Using the placeholder values `BASE = $10`, `SAME_DAY = $5` (values only; the *relationships* are what is being tested):
+Using the placeholder values `BASE = $10`, `SAME_DAY = $5`, `AGGRESSIVE = $10` (values only; the *relationships* are what is being tested). Criteria 1–7 assume the aggressive/reactive toggle is **off**:
 
 1. **1 dog, no toggles →** $10.00.
 2. **2 dogs, no toggles →** $15.00 (10 + 5). Second dog is half price: the total is 1.5 × `BASE`, never $20 (full) and never $10 (free).
@@ -85,3 +89,8 @@ Using the placeholder values `BASE = $10`, `SAME_DAY = $5` (values only; the *re
 11. **Rosie and customer parity →** the same three inputs on the same page yield the same number regardless of who enters them or what device they use.
 12. **Offline →** with the network disabled, every criterion above still holds.
 13. **Rate edit →** changing `BASE` in the pricing block to $12 makes criterion 1 show $12.00 with no change to calculation logic; changing the phone number updates the text-to-book prompt.
+14. **1 dog, aggressive →** $20.00 (10 + 10).
+15. **3 dogs, aggressive →** $35.00 (10 + 5 + 10, then + 10). The surcharge is flat per booking: the total is the same whether one, two, or all three dogs are aggressive.
+16. **2 dogs, holiday + aggressive →** $40.00 ((10 + 5) × 2 = 30, then + 10). The aggressive surcharge is added after doubling and is **not** itself doubled — never $50.
+17. **2 dogs, holiday + same-day + aggressive →** $45.00 ((10 + 5) × 2 = 30, then + 5 + 10).
+18. **Aggressive toggle off →** every total in criteria 1–7 is unchanged by this feature.
