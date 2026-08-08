@@ -1,0 +1,100 @@
+name: Handle client-request issues
+
+on:
+  issues:
+    types: [opened, labeled]
+
+# One run per issue. A rapid open-then-label won't start two agents on the
+# same issue and race each other onto two branches.
+concurrency:
+  group: client-request-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  handle:
+    # Only act on unhandled client requests. `opened` fires before any label
+    # exists, so most real runs come from `labeled`; this gate covers both.
+    if: >-
+      contains(github.event.issue.labels.*.name, 'client-request') &&
+      !contains(github.event.issue.labels.*.name, 'handled') &&
+      !contains(github.event.issue.labels.*.name, 'needs-input')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --model claude-opus-5
+            --allowedTools Bash,Read,Write,Edit,Glob,Grep
+          prompt: |
+            You are handling issue #${{ github.event.issue.number }} on the repo
+            AtifQureshi56/rosie-dog-walk — a single-page dog-walking quote calculator.
+
+            Key files:
+            - `index.html` — the entire app. Pricing knobs live in the `CONFIG` object under
+              the comment "Editable pricing block". Fixed policy constants
+              (`SECOND_DOG_FACTOR`, `HOLIDAY_MULTIPLIER`) and the pure function
+              `quote(dogs, sameDay, holiday, config)` are just below it. At the bottom of the
+              script there is a `selfCheck()` IIFE listing the acceptance-criteria cases with
+              their expected numbers.
+            - `specs/spec.md` — the spec, including a `## Acceptance criteria` section.
+
+            Use the `gh` CLI for all GitHub work (GH_TOKEN is already set in the environment).
+
+            STEP 0 — READ THE ISSUE
+            Run `gh issue view ${{ github.event.issue.number }} --json number,title,body,labels`.
+            If it already carries a `handled` or a `needs-input` label, do nothing at all — no
+            branches, no commits, no comments — and stop.
+
+            STEP 1 — SPEC AND CODE
+            Create a branch `claude/issue-${{ github.event.issue.number }}-<short-slug>` off the
+            latest `main`.
+            a) Update `specs/spec.md` to reflect the requested change. In the spec, quote verbatim
+               the exact line(s) from the issue body that drive the change, and add or adjust the
+               entries under `## Acceptance criteria` so they state concrete numbers.
+            b) Update `index.html` to match the spec. Rate changes belong in `CONFIG`; rule changes
+               belong in `quote()`. Preserve the project constraints: one HTML file, embedded
+               CSS/JS, no backend, no frameworks, no external calls, works offline by
+               double-clicking. Update the `selfCheck()` cases to the new expected numbers.
+            Commit both the spec and code changes to the branch.
+
+            STEP 2 — VERIFICATION (a separate pass — do not fold this into step 1)
+            Do not assume the code is correct because you just wrote it. Independently re-derive
+            the expected numbers twice over:
+            - from the acceptance criteria as now written in `specs/spec.md`, and
+            - from the scenario described in the issue itself.
+            Compute each expected total by hand from the stated rules, showing the arithmetic.
+            Then execute the actual code to obtain its real output: copy `CONFIG`, the policy
+            constants and the `quote()` function into a temporary `.js` file and run it with
+            `node`, printing the result for every case. Compare hand-derived against actual,
+            case by case.
+            The check PASSES only if every hand-derived number matches the code's actual output
+            AND the issue's request is fully and unambiguously resolved.
+
+            STEP 3a — IF VERIFICATION PASSES
+            Push the branch and open a pull request to `main`. The PR description must contain the
+            verification itself: a table of each case (inputs → expected → actual → match), the
+            rule derivation behind the expected numbers, and a link to the issue. Then comment on
+            the issue with a short summary plus the PR link, and add the `handled` label via
+            `gh issue edit ${{ github.event.issue.number }} --add-label handled`.
+
+            STEP 3b — IF VERIFICATION FAILS, OR ANYTHING IS AMBIGUOUS
+            Do NOT open a pull request. This applies to: any mismatch between a derived number and
+            the code's actual output; an issue that does not say what the new number or rule should
+            be; an issue that conflicts with an existing acceptance criterion; or anything you had
+            to guess at. Comment on the issue stating exactly what is unresolved — the specific
+            question you need answered, or the specific mismatch in the form "expected X, got Y" —
+            and add the `needs-input` label. Do not open a PR for that issue even partially.
+
+            ALWAYS: never merge anything, and never push directly to `main`. If a label you need
+            does not exist yet, create it with `gh label create`.
