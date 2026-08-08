@@ -1,0 +1,6 @@
+# Never commit credentials. Secrets belong in GitHub Actions secrets
+# (Settings -> Secrets and variables -> Actions), not in the repo.
+.env
+*.env
+.env.*
+!.env.example
